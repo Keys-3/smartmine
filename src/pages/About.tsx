@@ -25,19 +25,34 @@ export default function About() {
 
   const teamMembers = [
     {
-      name: 'Dr. Sarah Mitchell',
-      role: 'Chief Technology Officer',
-      description: 'Leading expert in wearable sensor technology with 15 years of experience in mining safety.',
+      name: 'Avnishka Bhardwaj',
+      role: 'Team Lead',
+      description: '3rd Year B.Tech (C.S.E) student.',
     },
     {
-      name: 'James Rodriguez',
+      name: 'Samarth Sharma',
       role: 'Head of Operations',
-      description: 'Former mining operations manager with deep understanding of underground safety challenges.',
+      description: '3rd Year B.Tech (C.S.E) student.',
     },
     {
-      name: 'Emily Chen',
-      role: 'Lead Engineer',
-      description: 'Specialist in IoT systems and real-time data transmission in harsh environments.',
+      name: 'Piyush Negi',
+      role: 'R&D Manager',
+      description: '2nd Year B.Tech (I.T) student.',
+    },
+    {
+      name: 'Parth Garg',
+      role: 'Hardware Developer',
+      description: '3rd Year B.Tech (C.S.E) student.',
+    },
+    {
+      name: 'Shreya Sharma',
+      role: 'Marketing Head',
+      description: '3rd Year B.Tech (A.I.M.L) student.',
+    },
+    {
+      name: 'Prithvi Singh',
+      role: 'Software Developer',
+      description: '3rd Year B.Tech (C.S.E) student.',
     },
   ];
 
