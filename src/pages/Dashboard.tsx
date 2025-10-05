@@ -27,6 +27,16 @@ interface MonthlyStats {
   hoursWorked: number;
 }
 
+interface DailyStats {
+  date: string;
+  avgHeartRate: number;
+  avgAirToxicity: number;
+  avgTemperature: number;
+  avgHumidity: number;
+  criticalAlerts: number;
+  totalReadings: number;
+}
+
 export default function Dashboard() {
   const { user, profile } = useAuth();
   const [sensorData, setSensorData] = useState<SensorReading[]>([]);
@@ -41,6 +51,7 @@ export default function Dashboard() {
   const [showMonthlyStats, setShowMonthlyStats] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [loadingStats, setLoadingStats] = useState(false);
+  const [dailyStatsMap, setDailyStatsMap] = useState<Map<string, DailyStats[]>>(new Map());
 
   useEffect(() => {
     if (!user) {
@@ -62,9 +73,13 @@ export default function Dashboard() {
   const loadMonthlyStats = async () => {
     setLoadingStats(true);
     try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
       let query = supabase
         .from('sensor_readings')
         .select('*')
+        .gte('created_at', thirtyDaysAgo.toISOString())
         .order('created_at', { ascending: false });
 
       if (profile?.role === 'miner' && profile.rfid) {
@@ -78,6 +93,9 @@ export default function Dashboard() {
       if (data && data.length > 0) {
         const stats = calculateMonthlyStats(data);
         setMonthlyStats(stats);
+
+        const dailyStats = calculateDailyStats(data);
+        setDailyStatsMap(dailyStats);
 
         if (stats.length > 0 && !selectedMonth) {
           setSelectedMonth(stats[0].month);
@@ -154,6 +172,56 @@ export default function Dashboard() {
     });
 
     return stats.sort((a, b) => b.month.localeCompare(a.month));
+  };
+
+  const calculateDailyStats = (data: SensorReading[]): Map<string, DailyStats[]> => {
+    const statsByMinerAndDay = new Map<string, Map<string, SensorReading[]>>();
+
+    data.forEach((reading) => {
+      const date = new Date(reading.created_at);
+      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const minerId = reading.miner_id;
+
+      if (!statsByMinerAndDay.has(minerId)) {
+        statsByMinerAndDay.set(minerId, new Map());
+      }
+
+      const minerDays = statsByMinerAndDay.get(minerId)!;
+      if (!minerDays.has(dateKey)) {
+        minerDays.set(dateKey, []);
+      }
+
+      minerDays.get(dateKey)!.push(reading);
+    });
+
+    const dailyStatsMap = new Map<string, DailyStats[]>();
+
+    statsByMinerAndDay.forEach((days, minerId) => {
+      const dailyStats: DailyStats[] = [];
+
+      days.forEach((readings, dateKey) => {
+        const avgHeartRate = readings.reduce((sum, r) => sum + r.heart_rate, 0) / readings.length;
+        const avgAirToxicity = readings.reduce((sum, r) => sum + r.air_toxicity, 0) / readings.length;
+        const avgTemperature = readings.reduce((sum, r) => sum + r.temperature, 0) / readings.length;
+        const avgHumidity = readings.reduce((sum, r) => sum + r.humidity, 0) / readings.length;
+        const criticalAlerts = readings.filter(r => r.heart_rate > 100 || r.air_toxicity > 20).length;
+
+        dailyStats.push({
+          date: dateKey,
+          avgHeartRate,
+          avgAirToxicity,
+          avgTemperature,
+          avgHumidity,
+          criticalAlerts,
+          totalReadings: readings.length,
+        });
+      });
+
+      dailyStats.sort((a, b) => a.date.localeCompare(b.date));
+      dailyStatsMap.set(minerId, dailyStats);
+    });
+
+    return dailyStatsMap;
   };
 
   const getMonthName = (monthKey: string) => {
@@ -607,6 +675,153 @@ export default function Dashboard() {
                           </span>
                         </div>
                       </div>
+
+                      {dailyStatsMap.has(stat.minerId) && dailyStatsMap.get(stat.minerId)!.length > 0 && (
+                        <div className="mt-6">
+                          <h4 className="text-sm font-bold text-gray-700 mb-4">Last 30 Days Trend</h4>
+
+                          <div className="mb-6">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-semibold text-gray-600">Heart Rate (BPM)</span>
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <div className="w-3 h-0.5 bg-red-500"></div>
+                                  Critical (100+)
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <div className="w-3 h-0.5 bg-yellow-500"></div>
+                                  Warning (90-100)
+                                </span>
+                              </div>
+                            </div>
+                            <div className="relative h-32 bg-gradient-to-t from-gray-50 to-white border border-gray-200 rounded-lg p-3">
+                              <div className="absolute inset-x-3 top-3 bottom-3 flex items-end justify-between gap-1">
+                                {dailyStatsMap.get(stat.minerId)!.map((day, idx) => {
+                                  const maxHeartRate = Math.max(...dailyStatsMap.get(stat.minerId)!.map(d => d.avgHeartRate));
+                                  const height = (day.avgHeartRate / maxHeartRate) * 100;
+                                  const isWarning = day.avgHeartRate > 90 && day.avgHeartRate <= 100;
+                                  const isCritical = day.avgHeartRate > 100;
+
+                                  return (
+                                    <div key={idx} className="flex-1 flex flex-col justify-end h-full group relative">
+                                      <div
+                                        className={`w-full rounded-t transition-all ${
+                                          isCritical ? 'bg-red-500' :
+                                          isWarning ? 'bg-yellow-500' : 'bg-green-500'
+                                        }`}
+                                        style={{ height: `${height}%` }}
+                                      ></div>
+                                      <div className="absolute bottom-full mb-1 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap pointer-events-none z-10">
+                                        {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}<br/>
+                                        {day.avgHeartRate.toFixed(0)} BPM
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mb-6">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-semibold text-gray-600">Air Toxicity (PPM)</span>
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <div className="w-3 h-0.5 bg-red-500"></div>
+                                  Critical (20+)
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <div className="w-3 h-0.5 bg-yellow-500"></div>
+                                  Warning (15-20)
+                                </span>
+                              </div>
+                            </div>
+                            <div className="relative h-32 bg-gradient-to-t from-gray-50 to-white border border-gray-200 rounded-lg p-3">
+                              <div className="absolute inset-x-3 top-3 bottom-3 flex items-end justify-between gap-1">
+                                {dailyStatsMap.get(stat.minerId)!.map((day, idx) => {
+                                  const maxToxicity = Math.max(...dailyStatsMap.get(stat.minerId)!.map(d => d.avgAirToxicity));
+                                  const height = (day.avgAirToxicity / maxToxicity) * 100;
+                                  const isWarning = day.avgAirToxicity > 15 && day.avgAirToxicity <= 20;
+                                  const isCritical = day.avgAirToxicity > 20;
+
+                                  return (
+                                    <div key={idx} className="flex-1 flex flex-col justify-end h-full group relative">
+                                      <div
+                                        className={`w-full rounded-t transition-all ${
+                                          isCritical ? 'bg-red-500' :
+                                          isWarning ? 'bg-yellow-500' : 'bg-green-500'
+                                        }`}
+                                        style={{ height: `${height}%` }}
+                                      ></div>
+                                      <div className="absolute bottom-full mb-1 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap pointer-events-none z-10">
+                                        {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}<br/>
+                                        {day.avgAirToxicity.toFixed(1)} PPM
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mb-6">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-semibold text-gray-600">Temperature (°C)</span>
+                            </div>
+                            <div className="relative h-32 bg-gradient-to-t from-gray-50 to-white border border-gray-200 rounded-lg p-3">
+                              <div className="absolute inset-x-3 top-3 bottom-3 flex items-end justify-between gap-1">
+                                {dailyStatsMap.get(stat.minerId)!.map((day, idx) => {
+                                  const temps = dailyStatsMap.get(stat.minerId)!.map(d => d.avgTemperature);
+                                  const minTemp = Math.min(...temps);
+                                  const maxTemp = Math.max(...temps);
+                                  const range = maxTemp - minTemp || 1;
+                                  const height = ((day.avgTemperature - minTemp) / range) * 100;
+
+                                  return (
+                                    <div key={idx} className="flex-1 flex flex-col justify-end h-full group relative">
+                                      <div
+                                        className="w-full rounded-t bg-gradient-to-t from-orange-500 to-orange-400 transition-all"
+                                        style={{ height: `${height}%` }}
+                                      ></div>
+                                      <div className="absolute bottom-full mb-1 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap pointer-events-none z-10">
+                                        {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}<br/>
+                                        {day.avgTemperature.toFixed(1)}°C
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-semibold text-gray-600">Daily Readings Count</span>
+                            </div>
+                            <div className="relative h-32 bg-gradient-to-t from-gray-50 to-white border border-gray-200 rounded-lg p-3">
+                              <div className="absolute inset-x-3 top-3 bottom-3 flex items-end justify-between gap-1">
+                                {dailyStatsMap.get(stat.minerId)!.map((day, idx) => {
+                                  const maxReadings = Math.max(...dailyStatsMap.get(stat.minerId)!.map(d => d.totalReadings));
+                                  const height = (day.totalReadings / maxReadings) * 100;
+
+                                  return (
+                                    <div key={idx} className="flex-1 flex flex-col justify-end h-full group relative">
+                                      <div
+                                        className="w-full rounded-t bg-gradient-to-t from-blue-500 to-blue-400 transition-all"
+                                        style={{ height: `${height}%` }}
+                                      ></div>
+                                      <div className="absolute bottom-full mb-1 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap pointer-events-none z-10">
+                                        {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}<br/>
+                                        {day.totalReadings} readings
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
               </div>
