@@ -1,4 +1,4 @@
-import { Heart, Wind, MapPin, ThermometerSun, Droplets, AlertTriangle, Loader2, Bell } from 'lucide-react';
+import { Heart, Wind, MapPin, ThermometerSun, Droplets, AlertTriangle, Loader2, Bell, TrendingUp, Calendar } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, SensorReading } from '../lib/supabase';
@@ -13,6 +13,20 @@ interface CriticalAlert {
   readingsChanged: boolean;
 }
 
+interface MonthlyStats {
+  minerId: string;
+  rfid: string;
+  month: string;
+  avgHeartRate: number;
+  avgAirToxicity: number;
+  avgTemperature: number;
+  avgHumidity: number;
+  totalReadings: number;
+  criticalAlerts: number;
+  warningAlerts: number;
+  hoursWorked: number;
+}
+
 export default function Dashboard() {
   const { user, profile } = useAuth();
   const [sensorData, setSensorData] = useState<SensorReading[]>([]);
@@ -23,6 +37,10 @@ export default function Dashboard() {
   const criticalAlertsRef = useRef<Map<string, CriticalAlert>>(new Map());
   const [activeAlerts, setActiveAlerts] = useState<string[]>([]);
   const [criticalMinerModal, setCriticalMinerModal] = useState<SensorReading | null>(null);
+  const [monthlyStats, setMonthlyStats] = useState<MonthlyStats[]>([]);
+  const [showMonthlyStats, setShowMonthlyStats] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
+  const [loadingStats, setLoadingStats] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -32,6 +50,7 @@ export default function Dashboard() {
     }
 
     loadSensorData();
+    loadMonthlyStats();
 
     const interval = setInterval(() => {
       loadSensorData();
@@ -39,6 +58,109 @@ export default function Dashboard() {
 
     return () => clearInterval(interval);
   }, [user, profile]);
+
+  const loadMonthlyStats = async () => {
+    setLoadingStats(true);
+    try {
+      let query = supabase
+        .from('sensor_readings')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (profile?.role === 'miner' && profile.rfid) {
+        query = query.eq('rfid', profile.rfid);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const stats = calculateMonthlyStats(data);
+        setMonthlyStats(stats);
+
+        if (stats.length > 0 && !selectedMonth) {
+          setSelectedMonth(stats[0].month);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading monthly stats:', err);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  const calculateMonthlyStats = (data: SensorReading[]): MonthlyStats[] => {
+    const statsByMinerAndMonth = new Map<string, {
+      minerId: string;
+      rfid: string;
+      month: string;
+      readings: SensorReading[];
+    }>();
+
+    data.forEach((reading) => {
+      const date = new Date(reading.created_at);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const key = `${reading.miner_id}-${monthKey}`;
+
+      if (!statsByMinerAndMonth.has(key)) {
+        statsByMinerAndMonth.set(key, {
+          minerId: reading.miner_id,
+          rfid: reading.rfid || '',
+          month: monthKey,
+          readings: [],
+        });
+      }
+
+      statsByMinerAndMonth.get(key)!.readings.push(reading);
+    });
+
+    const stats: MonthlyStats[] = [];
+
+    statsByMinerAndMonth.forEach((value) => {
+      const { minerId, rfid, month, readings } = value;
+
+      const avgHeartRate = readings.reduce((sum, r) => sum + r.heart_rate, 0) / readings.length;
+      const avgAirToxicity = readings.reduce((sum, r) => sum + r.air_toxicity, 0) / readings.length;
+      const avgTemperature = readings.reduce((sum, r) => sum + r.temperature, 0) / readings.length;
+      const avgHumidity = readings.reduce((sum, r) => sum + r.humidity, 0) / readings.length;
+
+      const criticalAlerts = readings.filter(r => r.heart_rate > 100 || r.air_toxicity > 20).length;
+      const warningAlerts = readings.filter(r =>
+        (r.heart_rate > 90 && r.heart_rate <= 100) ||
+        (r.air_toxicity > 15 && r.air_toxicity <= 20)
+      ).length;
+
+      const sortedReadings = [...readings].sort((a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      const firstReading = new Date(sortedReadings[0].created_at).getTime();
+      const lastReading = new Date(sortedReadings[sortedReadings.length - 1].created_at).getTime();
+      const hoursWorked = (lastReading - firstReading) / (1000 * 60 * 60);
+
+      stats.push({
+        minerId,
+        rfid,
+        month,
+        avgHeartRate,
+        avgAirToxicity,
+        avgTemperature,
+        avgHumidity,
+        totalReadings: readings.length,
+        criticalAlerts,
+        warningAlerts,
+        hoursWorked,
+      });
+    });
+
+    return stats.sort((a, b) => b.month.localeCompare(a.month));
+  };
+
+  const getMonthName = (monthKey: string) => {
+    const [year, month] = monthKey.split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1);
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
 
   const checkCriticalCondition = (heartRate: number, airToxicity: number): boolean => {
     return heartRate > 100 || airToxicity > 20;
@@ -299,25 +421,35 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {profile?.role === 'admin' && zones.length > 1 && (
-          <div className="mb-6">
-            <label htmlFor="zone-filter" className="block text-sm font-semibold text-gray-700 mb-2">
-              Filter by Zone
-            </label>
-            <select
-              id="zone-filter"
-              value={selectedZone}
-              onChange={(e) => setSelectedZone(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-            >
-              {zones.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone === 'all' ? 'All Zones' : zone}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="flex gap-4 mb-6 items-end">
+          {profile?.role === 'admin' && zones.length > 1 && (
+            <div className="flex-1">
+              <label htmlFor="zone-filter" className="block text-sm font-semibold text-gray-700 mb-2">
+                Filter by Zone
+              </label>
+              <select
+                id="zone-filter"
+                value={selectedZone}
+                onChange={(e) => setSelectedZone(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              >
+                {zones.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone === 'all' ? 'All Zones' : zone}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <button
+            onClick={() => setShowMonthlyStats(!showMonthlyStats)}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 shadow-md"
+          >
+            <TrendingUp className="w-5 h-5" />
+            {showMonthlyStats ? 'Hide' : 'Show'} Monthly Stats
+          </button>
+        </div>
 
         {activeAlerts.length > 0 && (
           <div className="mb-6 bg-red-600 text-white rounded-xl shadow-lg p-6 animate-pulse">
@@ -331,6 +463,154 @@ export default function Dashboard() {
                 </p>
               </div>
             </div>
+          </div>
+        )}
+
+        {showMonthlyStats && (
+          <div className="mb-6 bg-white rounded-xl shadow-lg p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <Calendar className="w-7 h-7 text-blue-600" />
+                <h2 className="text-2xl font-bold text-slate-900">Monthly Statistics</h2>
+              </div>
+              {monthlyStats.length > 0 && (
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  {Array.from(new Set(monthlyStats.map(s => s.month))).map((month) => (
+                    <option key={month} value={month}>
+                      {getMonthName(month)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {loadingStats ? (
+              <div className="text-center py-8">
+                <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-2" />
+                <p className="text-gray-600">Loading statistics...</p>
+              </div>
+            ) : monthlyStats.length === 0 ? (
+              <div className="text-center py-8">
+                <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-600">No statistics available yet.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {monthlyStats
+                  .filter(stat => stat.month === selectedMonth)
+                  .map((stat) => (
+                    <div
+                      key={`${stat.minerId}-${stat.month}`}
+                      className="border-2 border-gray-200 rounded-lg p-5 hover:border-blue-300 transition-colors"
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h3 className="text-xl font-bold text-slate-900">
+                            Miner {stat.minerId}
+                          </h3>
+                          {stat.rfid && (
+                            <p className="text-sm text-gray-600">RFID: {stat.rfid}</p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-blue-600">
+                            {stat.hoursWorked.toFixed(1)}h
+                          </p>
+                          <p className="text-xs text-gray-600">Hours Worked</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                        <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-3 border border-red-200">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Heart className="w-4 h-4 text-red-600" />
+                            <span className="text-xs font-semibold text-gray-700">Avg Heart Rate</span>
+                          </div>
+                          <p className="text-xl font-bold text-slate-900">
+                            {stat.avgHeartRate.toFixed(0)}
+                          </p>
+                          <p className="text-xs text-gray-600">BPM</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-amber-200">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Wind className="w-4 h-4 text-amber-600" />
+                            <span className="text-xs font-semibold text-gray-700">Avg Air Toxicity</span>
+                          </div>
+                          <p className="text-xl font-bold text-slate-900">
+                            {stat.avgAirToxicity.toFixed(1)}
+                          </p>
+                          <p className="text-xs text-gray-600">PPM</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-3 border border-orange-200">
+                          <div className="flex items-center gap-2 mb-1">
+                            <ThermometerSun className="w-4 h-4 text-orange-600" />
+                            <span className="text-xs font-semibold text-gray-700">Avg Temp</span>
+                          </div>
+                          <p className="text-xl font-bold text-slate-900">
+                            {stat.avgTemperature.toFixed(1)}
+                          </p>
+                          <p className="text-xs text-gray-600">°C</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-3 border border-blue-200">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Droplets className="w-4 h-4 text-blue-600" />
+                            <span className="text-xs font-semibold text-gray-700">Avg Humidity</span>
+                          </div>
+                          <p className="text-xl font-bold text-slate-900">
+                            {stat.avgHumidity.toFixed(0)}
+                          </p>
+                          <p className="text-xs text-gray-600">%</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-3 border border-red-200">
+                          <div className="flex items-center gap-2 mb-1">
+                            <AlertTriangle className="w-4 h-4 text-red-600" />
+                            <span className="text-xs font-semibold text-gray-700">Critical</span>
+                          </div>
+                          <p className="text-xl font-bold text-red-600">
+                            {stat.criticalAlerts}
+                          </p>
+                          <p className="text-xs text-gray-600">Alerts</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg p-3 border border-yellow-200">
+                          <div className="flex items-center gap-2 mb-1">
+                            <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                            <span className="text-xs font-semibold text-gray-700">Warning</span>
+                          </div>
+                          <p className="text-xl font-bold text-yellow-600">
+                            {stat.warningAlerts}
+                          </p>
+                          <p className="text-xs text-gray-600">Alerts</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 pt-3 border-t border-gray-200">
+                        <div className="flex items-center justify-between text-sm text-gray-600">
+                          <span>Total Readings: <strong className="text-slate-900">{stat.totalReadings}</strong></span>
+                          <span>
+                            Safety Score:
+                            <strong className={`ml-1 ${
+                              stat.criticalAlerts === 0 ? 'text-green-600' :
+                              stat.criticalAlerts < 5 ? 'text-yellow-600' : 'text-red-600'
+                            }`}>
+                              {stat.criticalAlerts === 0 ? 'Excellent' :
+                               stat.criticalAlerts < 5 ? 'Good' : 'Needs Attention'}
+                            </strong>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
