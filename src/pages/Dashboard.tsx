@@ -73,13 +73,9 @@ export default function Dashboard() {
   const loadMonthlyStats = async () => {
     setLoadingStats(true);
     try {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
       let query = supabase
         .from('sensor_readings')
         .select('*')
-        .gte('created_at', thirtyDaysAgo.toISOString())
         .order('created_at', { ascending: false });
 
       if (profile?.role === 'miner' && profile.rfid) {
@@ -222,6 +218,16 @@ export default function Dashboard() {
     });
 
     return dailyStatsMap;
+  };
+
+  const getDataRangeInfo = (dailyStats: DailyStats[]) => {
+    if (!dailyStats || dailyStats.length === 0) return '';
+
+    const firstDate = new Date(dailyStats[0].date);
+    const lastDate = new Date(dailyStats[dailyStats.length - 1].date);
+    const daysDiff = Math.floor((lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+    return `${dailyStats.length} day${dailyStats.length > 1 ? 's' : ''} of data (${daysDiff} day span)`;
   };
 
   const getMonthName = (monthKey: string) => {
@@ -539,7 +545,10 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <Calendar className="w-7 h-7 text-blue-600" />
-                <h2 className="text-2xl font-bold text-slate-900">Monthly Statistics</h2>
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900">Historical Statistics</h2>
+                  <p className="text-sm text-gray-600">Showing all available data</p>
+                </div>
               </div>
               {monthlyStats.length > 0 && (
                 <select
@@ -565,8 +574,26 @@ export default function Dashboard() {
               <div className="text-center py-8">
                 <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                 <p className="text-gray-600">No statistics available yet.</p>
+                <p className="text-sm text-gray-500 mt-2">Statistics will appear once sensor data is collected.</p>
               </div>
             ) : (
+              <>
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    <strong>Data Range:</strong> Showing all available historical data.
+                    {monthlyStats.length === 1 && dailyStatsMap.size > 0 ? (
+                      <span className="ml-1">
+                        {Array.from(dailyStatsMap.values())[0]?.length === 1
+                          ? 'Currently displaying single day of data.'
+                          : `Currently displaying ${Array.from(dailyStatsMap.values())[0]?.length} days of data.`}
+                      </span>
+                    ) : (
+                      <span className="ml-1">
+                        Data spans across {monthlyStats.length} month{monthlyStats.length > 1 ? 's' : ''}.
+                      </span>
+                    )}
+                  </p>
+                </div>
               <div className="grid gap-4">
                 {monthlyStats
                   .filter(stat => stat.month === selectedMonth)
@@ -678,7 +705,20 @@ export default function Dashboard() {
 
                       {dailyStatsMap.has(stat.minerId) && dailyStatsMap.get(stat.minerId)!.length > 0 && (
                         <div className="mt-6">
-                          <h4 className="text-sm font-bold text-gray-700 mb-4">Last 30 Days Trend</h4>
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-sm font-bold text-gray-700">
+                              Daily Trends
+                            </h4>
+                            <div className="text-xs text-gray-500">
+                              {getDataRangeInfo(dailyStatsMap.get(stat.minerId)!)}
+                            </div>
+                          </div>
+
+                          {dailyStatsMap.get(stat.minerId)!.length === 1 && (
+                            <div className="mb-4 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                              <strong>Note:</strong> Only one day of data available. Graphs will show more detail as more data is collected.
+                            </div>
+                          )}
 
                           <div className="mb-6">
                             <div className="flex items-center justify-between mb-2">
@@ -825,6 +865,7 @@ export default function Dashboard() {
                     </div>
                   ))}
               </div>
+              </>
             )}
           </div>
         )}
