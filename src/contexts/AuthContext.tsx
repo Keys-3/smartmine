@@ -43,6 +43,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  const logActivity = async (
+    email: string,
+    activityType: 'signup' | 'login' | 'logout',
+    status: 'success' | 'failed',
+    userId?: string
+  ) => {
+    try {
+      await supabase.from('user_activity_log').insert({
+        user_id: userId || null,
+        email,
+        activity_type: activityType,
+        status,
+        ip_address: null,
+        user_agent: navigator.userAgent,
+      });
+    } catch (error) {
+      console.error('Error logging activity:', error);
+    }
+  };
+
   const loadProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -62,12 +82,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      return { error };
+
+      if (error) {
+        await logActivity(email, 'login', 'failed');
+        return { error };
+      }
+
+      if (data.user) {
+        await logActivity(email, 'login', 'success', data.user.id);
+      }
+
+      return { error: null };
     } catch (error) {
+      await logActivity(email, 'login', 'failed');
       return { error: error as Error };
     }
   };
@@ -89,20 +120,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         metadata.rfid = rfid;
       }
 
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: metadata,
         },
       });
-      return { error };
+
+      if (error) {
+        await logActivity(email, 'signup', 'failed');
+        return { error };
+      }
+
+      if (data.user) {
+        await logActivity(email, 'signup', 'success', data.user.id);
+      }
+
+      return { error: null };
     } catch (error) {
+      await logActivity(email, 'signup', 'failed');
       return { error: error as Error };
     }
   };
 
   const signOut = async () => {
+    if (user?.email) {
+      await logActivity(user.email, 'logout', 'success', user.id);
+    }
     await supabase.auth.signOut();
     setProfile(null);
   };
