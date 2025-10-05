@@ -8,6 +8,9 @@ interface CriticalAlert {
   startTime: number;
   lastAlertTime: number;
   hasAlerted: boolean;
+  lastHeartRate: number;
+  lastAirToxicity: number;
+  readingsChanged: boolean;
 }
 
 export default function Dashboard() {
@@ -19,6 +22,7 @@ export default function Dashboard() {
   const [error, setError] = useState('');
   const criticalAlertsRef = useRef<Map<string, CriticalAlert>>(new Map());
   const [activeAlerts, setActiveAlerts] = useState<string[]>([]);
+  const [criticalMinerModal, setCriticalMinerModal] = useState<SensorReading | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -40,19 +44,17 @@ export default function Dashboard() {
     return heartRate > 100 || airToxicity > 20;
   };
 
-  const showMedicalAlert = (minerId: string) => {
-    const alertMessage = `URGENT: Miner ${minerId} requires IMMEDIATE MEDICAL ATTENTION! Critical condition detected for more than 45 seconds.`;
+  const showMedicalAlertModal = (reading: SensorReading) => {
+    setCriticalMinerModal(reading);
 
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('CRITICAL MEDICAL ALERT', {
-        body: alertMessage,
+        body: `URGENT: Miner ${reading.miner_id} requires IMMEDIATE MEDICAL ATTENTION!`,
         icon: '/alert-icon.png',
         requireInteraction: true,
-        tag: `critical-${minerId}`,
+        tag: `critical-${reading.miner_id}`,
       });
     }
-
-    alert(alertMessage);
   };
 
   const monitorCriticalAlerts = (data: SensorReading[]) => {
@@ -71,13 +73,28 @@ export default function Dashboard() {
             startTime: currentTime,
             lastAlertTime: currentTime,
             hasAlerted: false,
+            lastHeartRate: reading.heart_rate,
+            lastAirToxicity: reading.air_toxicity,
+            readingsChanged: false,
           });
         } else {
           const alert = criticalAlerts.get(minerId)!;
           const duration = currentTime - alert.startTime;
 
-          if (duration >= 45000 && !alert.hasAlerted) {
-            showMedicalAlert(minerId);
+          const heartRateChanged = Math.abs(alert.lastHeartRate - reading.heart_rate) > 2;
+          const airToxicityChanged = Math.abs(alert.lastAirToxicity - reading.air_toxicity) > 1;
+
+          if (heartRateChanged || airToxicityChanged) {
+            alert.readingsChanged = true;
+            alert.startTime = currentTime;
+            alert.hasAlerted = false;
+          }
+
+          alert.lastHeartRate = reading.heart_rate;
+          alert.lastAirToxicity = reading.air_toxicity;
+
+          if (duration >= 30000 && !alert.hasAlerted && !alert.readingsChanged) {
+            showMedicalAlertModal(reading);
             alert.hasAlerted = true;
             alert.lastAlertTime = currentTime;
           }
@@ -459,6 +476,114 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {criticalMinerModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-red-600 text-white p-6 rounded-t-2xl">
+              <div className="flex items-center gap-4">
+                <Bell className="w-10 h-10 animate-bounce" />
+                <div>
+                  <h2 className="text-2xl font-bold">CRITICAL MEDICAL ALERT</h2>
+                  <p className="text-sm opacity-90">Immediate attention required</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="mb-6">
+                <h3 className="text-xl font-bold text-slate-900 mb-2">
+                  Miner {criticalMinerModal.miner_id}
+                </h3>
+                <p className="text-gray-600">
+                  Critical condition sustained for more than 30 seconds
+                </p>
+                {criticalMinerModal.rfid && (
+                  <p className="text-sm text-gray-500 mt-1">RFID: {criticalMinerModal.rfid}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Heart className="w-6 h-6 text-red-600" />
+                    <span className="text-sm font-semibold text-gray-700">Heart Rate</span>
+                  </div>
+                  <p className="text-3xl font-bold text-red-600">
+                    {criticalMinerModal.heart_rate.toFixed(0)} BPM
+                  </p>
+                  <p className="text-xs text-red-700 mt-1">Critical threshold: &gt;100 BPM</p>
+                </div>
+
+                <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Wind className="w-6 h-6 text-red-600" />
+                    <span className="text-sm font-semibold text-gray-700">Air Toxicity</span>
+                  </div>
+                  <p className="text-3xl font-bold text-red-600">
+                    {criticalMinerModal.air_toxicity.toFixed(1)} PPM
+                  </p>
+                  <p className="text-xs text-red-700 mt-1">Critical threshold: &gt;20 PPM</p>
+                </div>
+
+                <div className="bg-slate-50 border border-gray-300 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ThermometerSun className="w-6 h-6 text-orange-500" />
+                    <span className="text-sm font-semibold text-gray-700">Temperature</span>
+                  </div>
+                  <p className="text-3xl font-bold text-slate-900">
+                    {criticalMinerModal.temperature.toFixed(1)}°C
+                  </p>
+                </div>
+
+                <div className="bg-slate-50 border border-gray-300 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Droplets className="w-6 h-6 text-blue-500" />
+                    <span className="text-sm font-semibold text-gray-700">Humidity</span>
+                  </div>
+                  <p className="text-3xl font-bold text-slate-900">
+                    {criticalMinerModal.humidity.toFixed(0)}%
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 mb-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <MapPin className="w-6 h-6 text-amber-600" />
+                  <span className="text-sm font-semibold text-gray-700">Location</span>
+                </div>
+                <p className="text-lg font-bold text-slate-900 mb-1">
+                  {criticalMinerModal.zone}
+                </p>
+                <p className="text-sm text-gray-600">
+                  GPS: {criticalMinerModal.gps_latitude.toFixed(4)}, {criticalMinerModal.gps_longitude.toFixed(4)}
+                </p>
+                <a
+                  href={`https://www.google.com/maps?q=${criticalMinerModal.gps_latitude},${criticalMinerModal.gps_longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800 text-sm underline mt-2 inline-block"
+                >
+                  Open in Google Maps
+                </a>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 mb-6">
+                <p className="text-sm text-gray-700">
+                  <strong>Last Updated:</strong> {new Date(criticalMinerModal.created_at).toLocaleString()}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setCriticalMinerModal(null)}
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg transition-colors"
+              >
+                Acknowledge Alert
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
