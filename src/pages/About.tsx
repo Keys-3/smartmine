@@ -178,8 +178,8 @@ export default function About() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-900 mb-1">Email</h3>
-                    <p className="text-gray-600">contact@smartmine.com</p>
-                    <p className="text-gray-600">support@smartmine.com</p>
+                    <p className="text-gray-600">2300300100148@ipec.org.in</p>
+                    <p className="text-gray-600">2300300100120@ipec.org.in</p>
                   </div>
                 </div>
 
@@ -200,8 +200,8 @@ export default function About() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-900 mb-1">Office</h3>
-                    <p className="text-gray-600">123 Mining Safety Boulevard</p>
-                    <p className="text-gray-600">Tech Valley, CA 94025</p>
+                    <p className="text-gray-600">Inderprastha Engineering College</p>
+                    <p className="text-gray-600">Ghaziabad, Uttar Pradesh</p>
                   </div>
                 </div>
               </div>
