@@ -189,8 +189,8 @@ export default function About() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-900 mb-1">Phone</h3>
-                    <p className="text-gray-600">+1 (555) 123-4567</p>
-                    <p className="text-gray-600">+1 (555) 765-4321</p>
+                    <p className="text-gray-600">+91 8076597189</p>
+                    <p className="text-gray-600">+91 9319277213</p>
                   </div>
                 </div>
 
