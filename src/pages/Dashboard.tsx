@@ -1,7 +1,14 @@
-import { Heart, Wind, MapPin, ThermometerSun, Droplets, AlertTriangle, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Heart, Wind, MapPin, ThermometerSun, Droplets, AlertTriangle, Loader2, Bell } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, SensorReading } from '../lib/supabase';
+
+interface CriticalAlert {
+  minerId: string;
+  startTime: number;
+  lastAlertTime: number;
+  hasAlerted: boolean;
+}
 
 export default function Dashboard() {
   const { user, profile } = useAuth();
@@ -10,6 +17,8 @@ export default function Dashboard() {
   const [selectedMiner, setSelectedMiner] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const criticalAlertsRef = useRef<Map<string, CriticalAlert>>(new Map());
+  const [activeAlerts, setActiveAlerts] = useState<string[]>([]);
 
   useEffect(() => {
     if (!user) {
@@ -26,6 +35,63 @@ export default function Dashboard() {
 
     return () => clearInterval(interval);
   }, [user, profile]);
+
+  const checkCriticalCondition = (heartRate: number, airToxicity: number): boolean => {
+    return heartRate > 100 || airToxicity > 20;
+  };
+
+  const showMedicalAlert = (minerId: string) => {
+    const alertMessage = `URGENT: Miner ${minerId} requires IMMEDIATE MEDICAL ATTENTION! Critical condition detected for more than 45 seconds.`;
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('CRITICAL MEDICAL ALERT', {
+        body: alertMessage,
+        icon: '/alert-icon.png',
+        requireInteraction: true,
+        tag: `critical-${minerId}`,
+      });
+    }
+
+    alert(alertMessage);
+  };
+
+  const monitorCriticalAlerts = (data: SensorReading[]) => {
+    const currentTime = Date.now();
+    const criticalAlerts = criticalAlertsRef.current;
+    const newActiveAlerts: string[] = [];
+
+    data.forEach((reading) => {
+      const isCritical = checkCriticalCondition(reading.heart_rate, reading.air_toxicity);
+      const minerId = reading.miner_id;
+
+      if (isCritical) {
+        if (!criticalAlerts.has(minerId)) {
+          criticalAlerts.set(minerId, {
+            minerId,
+            startTime: currentTime,
+            lastAlertTime: currentTime,
+            hasAlerted: false,
+          });
+        } else {
+          const alert = criticalAlerts.get(minerId)!;
+          const duration = currentTime - alert.startTime;
+
+          if (duration >= 45000 && !alert.hasAlerted) {
+            showMedicalAlert(minerId);
+            alert.hasAlerted = true;
+            alert.lastAlertTime = currentTime;
+          }
+        }
+        newActiveAlerts.push(minerId);
+      } else {
+        if (criticalAlerts.has(minerId)) {
+          criticalAlerts.delete(minerId);
+        }
+      }
+    });
+
+    setActiveAlerts(newActiveAlerts);
+  };
 
   const loadSensorData = async () => {
     try {
@@ -44,6 +110,7 @@ export default function Dashboard() {
 
       if (data && data.length > 0) {
         setSensorData(data);
+        monitorCriticalAlerts(data);
       } else {
         generateMockData();
       }
@@ -84,7 +151,14 @@ export default function Dashboard() {
     }
 
     setSensorData(mockData);
+    monitorCriticalAlerts(mockData);
   };
+
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
 
   if (!user) {
     return (
@@ -228,25 +302,46 @@ export default function Dashboard() {
           </div>
         )}
 
+        {activeAlerts.length > 0 && (
+          <div className="mb-6 bg-red-600 text-white rounded-xl shadow-lg p-6 animate-pulse">
+            <div className="flex items-center gap-4">
+              <Bell className="w-8 h-8" />
+              <div>
+                <h3 className="text-xl font-bold mb-1">CRITICAL ALERT</h3>
+                <p className="text-sm">
+                  {activeAlerts.length} miner{activeAlerts.length > 1 ? 's' : ''} in critical condition
+                  {activeAlerts.length === 1 ? ` - Miner ${activeAlerts[0]}` : ''}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid gap-6">
           {filteredData.map((data) => {
             const alert = getAlertLevel(data.heart_rate, data.air_toxicity);
             const isSelected = selectedMiner === data.miner_id;
+            const isCritical = activeAlerts.includes(data.miner_id);
 
             return (
               <div
                 key={data.id}
                 className={`bg-white rounded-xl shadow-lg border-2 transition-all cursor-pointer ${
                   getStatusColor(data.heart_rate, data.air_toxicity)
-                } ${isSelected ? 'ring-4 ring-amber-500' : ''}`}
+                } ${isSelected ? 'ring-4 ring-amber-500' : ''} ${isCritical ? 'animate-pulse' : ''}`}
                 onClick={() => setSelectedMiner(isSelected ? null : data.miner_id)}
               >
                 <div className="p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <h3 className="text-2xl font-bold text-slate-900">
-                        Miner {data.miner_id}
-                      </h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-2xl font-bold text-slate-900">
+                          Miner {data.miner_id}
+                        </h3>
+                        {isCritical && (
+                          <Bell className="w-6 h-6 text-red-600 animate-bounce" />
+                        )}
+                      </div>
                       <p className="text-sm text-gray-600">
                         Last updated: {new Date(data.created_at).toLocaleTimeString()}
                       </p>
