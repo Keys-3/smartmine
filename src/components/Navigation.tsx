@@ -11,11 +11,21 @@ export default function Navigation({ currentPage, onNavigate }: NavigationProps)
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { user, profile, signOut } = useAuth();
 
-  const navItems = [
-    { id: 'home', label: 'Home' },
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'about', label: 'About Us' },
-  ];
+  const getNavItems = () => {
+    const items = [
+      { id: 'home', label: 'Home' },
+      { id: 'dashboard', label: 'Dashboard' },
+      { id: 'about', label: 'About Us' },
+    ];
+
+    if (profile?.role === 'admin') {
+      items.push({ id: 'activity-logs', label: 'Activity Logs' });
+    }
+
+    return items;
+  };
+
+  const navItems = getNavItems();
 
   const handleSignOut = async () => {
     await signOut();

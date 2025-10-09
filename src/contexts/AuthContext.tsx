@@ -47,23 +47,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string,
     activityType: 'signup' | 'login' | 'logout',
     status: 'success' | 'failed',
-    userId?: string
+    userId?: string,
+    userRole?: string
   ) => {
     try {
-      await supabase.from('user_activity_log').insert({
-        user_id: userId || null,
-        email,
-        activity_type: activityType,
-        status,
-        ip_address: null,
-        user_agent: navigator.userAgent,
+      const sessionId = crypto.randomUUID();
+      const deviceInfo = {
+        platform: navigator.platform,
+        language: navigator.language,
+        screenResolution: `${window.screen.width}x${window.screen.height}`,
+        timestamp: new Date().toISOString(),
+      };
+
+      await supabase.rpc('log_user_activity', {
+        p_user_id: userId || null,
+        p_email: email,
+        p_activity_type: activityType,
+        p_status: status,
+        p_user_role: userRole || null,
+        p_session_id: sessionId,
+        p_ip_address: null,
+        p_user_agent: navigator.userAgent,
+        p_device_info: deviceInfo,
       });
     } catch (error) {
       console.error('Error logging activity:', error);
+      try {
+        await supabase.from('user_activity_log').insert({
+          user_id: userId || null,
+          email,
+          activity_type: activityType,
+          status,
+          user_role: userRole || null,
+          user_agent: navigator.userAgent,
+        });
+      } catch (fallbackError) {
+        console.error('Fallback logging failed:', fallbackError);
+      }
     }
   };
 
-  const loadProfile = async (userId: string) => {
+  const loadProfile = async (userId: string, isNewLogin: boolean = false) => {
     try {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -73,6 +97,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
       setProfile(data);
+
+      if (isNewLogin && data?.email) {
+        await logActivity(data.email, 'login', 'success', userId, data.role);
+      }
     } catch (error) {
       console.error('Error loading profile:', error);
     } finally {
@@ -93,7 +121,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data.user) {
-        await logActivity(email, 'login', 'success', data.user.id);
+        const { data: profileData } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .maybeSingle();
+
+        await logActivity(email, 'login', 'success', data.user.id, profileData?.role);
       }
 
       return { error: null };
@@ -129,24 +163,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (error) {
-        await logActivity(email, 'signup', 'failed');
+        await logActivity(email, 'signup', 'failed', undefined, role);
         return { error };
       }
 
       if (data.user) {
-        await logActivity(email, 'signup', 'success', data.user.id);
+        await logActivity(email, 'signup', 'success', data.user.id, role);
       }
 
       return { error: null };
     } catch (error) {
-      await logActivity(email, 'signup', 'failed');
+      await logActivity(email, 'signup', 'failed', undefined, role);
       return { error: error as Error };
     }
   };
 
   const signOut = async () => {
-    if (user?.email) {
-      await logActivity(user.email, 'logout', 'success', user.id);
+    if (user?.email && profile?.role) {
+      await logActivity(user.email, 'logout', 'success', user.id, profile.role);
     }
     await supabase.auth.signOut();
     setProfile(null);

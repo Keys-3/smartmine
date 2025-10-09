@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import About from './pages/About';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
+import ActivityLogs from './pages/ActivityLogs';
 
 function App() {
   const [currentPage, setCurrentPage] = useState('home');
@@ -18,6 +19,8 @@ function App() {
         return <Dashboard />;
       case 'about':
         return <About />;
+      case 'activity-logs':
+        return <ActivityLogs />;
       case 'login':
         return <Login onNavigate={setCurrentPage} />;
       case 'signup':
@@ -30,7 +33,10 @@ function App() {
   return (
     <AuthProvider>
       <div className="min-h-screen bg-gray-100">
-        {currentPage !== 'login' && currentPage !== 'signup' && (
+        {currentPage !== 'login' && currentPage !== 'signup' && currentPage !== 'activity-logs' && (
+          <Navigation currentPage={currentPage} onNavigate={setCurrentPage} />
+        )}
+        {currentPage === 'activity-logs' && (
           <Navigation currentPage={currentPage} onNavigate={setCurrentPage} />
         )}
         {renderPage()}
