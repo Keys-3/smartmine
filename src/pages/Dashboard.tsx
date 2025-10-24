@@ -2,6 +2,7 @@ import { Heart, Wind, MapPin, ThermometerSun, Droplets, AlertTriangle, Loader2, 
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, SensorReading } from '../lib/supabase';
+import SafetyChatbot from '../components/SafetyChatbot';
 
 interface CriticalAlert {
   minerId: string;
@@ -1120,6 +1121,8 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      <SafetyChatbot />
     </div>
   );
 }
