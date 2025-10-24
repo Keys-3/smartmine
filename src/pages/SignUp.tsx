@@ -59,8 +59,8 @@ export default function SignUp({ onNavigate }: SignUpProps) {
       setSuccess(true);
       setIsSubmitting(false);
       setTimeout(() => {
-        onNavigate('login');
-      }, 2000);
+        onNavigate('dashboard');
+      }, 1500);
     }
   };
 
@@ -95,7 +95,7 @@ export default function SignUp({ onNavigate }: SignUpProps) {
             {success && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <p className="text-green-800 text-sm">
-                  Account created successfully! Redirecting to login...
+                  Account created successfully! Logging you in...
                 </p>
               </div>
             )}

@@ -159,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         options: {
           data: metadata,
+          emailRedirectTo: undefined,
         },
       });
 
@@ -169,6 +170,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (data.user) {
         await logActivity(email, 'signup', 'success', data.user.id, role);
+
+        if (data.session) {
+          await loadProfile(data.user.id);
+        }
       }
 
       return { error: null };
